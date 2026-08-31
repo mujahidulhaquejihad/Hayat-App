@@ -1,0 +1,14 @@
+{
+  "appId": "app.hayat.daily",
+  "appName": "Hayat",
+  "webDir": "dist",
+  "android": {
+    "backgroundColor": "#f6f1e6"
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "iconColor": "#0F5C4C",
+      "sound": "alarm.wav"
+    }
+  }
+}
