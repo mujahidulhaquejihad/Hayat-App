@@ -11,6 +11,7 @@ import {
   bmiLabel,
   buildAgenda,
   cmFromFtIn,
+  daysAgo,
   defaultProfile,
   fetchPrayerTimes,
   fireNotify,
@@ -18,14 +19,20 @@ import {
   formatHms,
   ftInFromCm,
   getPosition,
+  HIJRI_BN,
   loadState,
+  namazStreak,
   nextPrayer,
   playChime,
+  prayedOn,
   registerSW,
   reverseCity,
   unlockAudio,
   saveState,
+  setLang,
   stopAlarm,
+  swimWeek,
+  tr,
   targetCalories,
   targetWeightKg,
   todayKey,
@@ -43,6 +50,8 @@ const TABS = [
   { id: "tasks", label: "Tasks", bn: "কাজ" },
   { id: "me", label: "Me", bn: "আমি" },
 ];
+
+const WEEK_BN_SUN = ["রবি", "সোম", "মঙ্গল", "বুধ", "বৃহস্পতি", "শুক্র", "শনি"];
 
 function DockIcon({ id }) {
   const p = {
@@ -128,6 +137,7 @@ export default function App() {
   }, []);
 
   const profile = state.profile;
+  setLang(profile.lang);
 
   useEffect(() => {
     if (!profile.lat || !profile.lng) return;
@@ -198,10 +208,11 @@ export default function App() {
           if (!profile.lat) await useMyLocation();
           patch({
             onboarded: true,
+            weights: { [todayKey()]: profile.weightKg },
             tasks: [
-              { id: uid(), title: "Swim (if today is a pool day)", time: "18:00", note: "45 min easy, then protein dinner", done: false },
-              { id: uid(), title: "Last cha before Maghrib", time: "16:30", note: "No sugar", done: false },
-              { id: uid(), title: "Lay out ruti atta for dinner", time: "19:15", note: "Skip rice at night", done: false },
+              { id: uid(), title: tr("Swim (if today is a pool day)", "সাঁতার (আজ পুলের দিন হলে)"), time: "18:00", note: tr("45 min easy, then protein dinner", "৪৫ মিনিট হালকা, তারপর প্রোটিন ডিনার"), done: false },
+              { id: uid(), title: tr("Last cha before Maghrib", "মাগরিবের আগে শেষ চা"), time: "16:30", note: tr("No sugar", "চিনি নয়"), done: false },
+              { id: uid(), title: tr("Lay out ruti atta for dinner", "রাতের রুটির আটা রেডি করো"), time: "19:15", note: tr("Skip rice at night", "রাতে ভাত নয়"), done: false },
             ],
           });
         }}
@@ -213,8 +224,8 @@ export default function App() {
     <div className="shell">
       {alarm && (
         <div className="alarm-overlay" role="alertdialog" aria-live="assertive">
-          <p className="kicker gold">সালাত · SALAH NOW</p>
-          <h1>{alarm.title || "Namaz"}</h1>
+          <p className="kicker gold">{tr("সালাত · SALAH NOW", "সালাতের সময় এখন")}</p>
+          <h1>{alarm.title || tr("Namaz", "নামাজ")}</h1>
           <p>{alarm.body}</p>
           <button
             className="btn primary alarm-stop"
@@ -223,7 +234,7 @@ export default function App() {
               unlockAudio();
             }}
           >
-            Stop alarm
+            {tr("Stop alarm", "অ্যালার্ম বন্ধ")}
           </button>
         </div>
       )}
@@ -237,6 +248,8 @@ export default function App() {
             water={state.water}
             doneMeals={state.doneMeals}
             doneNamaz={state.doneNamaz}
+            swims={state.swims}
+            onSwims={(swims) => patch({ swims })}
             onWater={(n) =>
               patch({ water: { ...state.water, [todayKey()]: n } })
             }
@@ -266,7 +279,20 @@ export default function App() {
             locBusy={locBusy}
             onLocate={useMyLocation}
             quranPage={state.quranPage || 1}
-            onQuranPage={(p) => patch({ quranPage: p })}
+            onQuranPage={(p) => {
+              const k = todayKey();
+              const read = p === (state.quranPage || 1) + 1;
+              patch({
+                quranPage: p,
+                quranLog: read ? { ...state.quranLog, [k]: (state.quranLog[k] || 0) + 1 } : state.quranLog,
+              });
+            }}
+            quranToday={state.quranLog[todayKey()] || 0}
+            khatams={state.khatams}
+            onKhatam={() => patch({ quranPage: 1, khatams: state.khatams + 1 })}
+            onProfile={patchProfile}
+            tasbihToday={state.tasbih[todayKey()] || 0}
+            onTasbih={(n) => patch({ tasbih: { ...state.tasbih, [todayKey()]: n } })}
             prayer={prayer}
             childrenTimes={
               <TimesPane
@@ -295,10 +321,16 @@ export default function App() {
         {tab === "me" && (
           <Me
             profile={profile}
+            weights={state.weights}
+            onWeight={(kg) => {
+              patchProfile({ weightKg: kg });
+              if (kg > 0) setState((s) => ({ ...s, weights: { ...s.weights, [todayKey()]: kg } }));
+            }}
             onProfile={patchProfile}
             onLocate={useMyLocation}
             locBusy={locBusy}
             onReset={() => {
+              if (!window.confirm(tr("Erase all Hayat data, including weight, swim and namaz history?", "ওজন, সাঁতার ও নামাজের ইতিহাসসহ সব তথ্য মুছে ফেলবে?"))) return;
               localStorage.removeItem("hayat.v1");
               setState(loadState());
             }}
@@ -317,7 +349,7 @@ export default function App() {
               <span className="dock-ic" aria-hidden>
                 <DockIcon id={t.id} />
               </span>
-              <span>{t.label}</span>
+              <span>{tr(t.label, t.bn)}</span>
             </button>
           ))}
         </nav>
@@ -344,35 +376,45 @@ function Onboarding({ profile, onChange, onLocate, locBusy, onDone }) {
         <p className="kicker">হায়াত · Hayat</p>
         {step === 0 && (
           <section className="hero-copy">
-            <h1>Eat from the kitchen. Pray on time. Live lighter.</h1>
+            <div className="seg">
+              <button className={profile.lang !== "bn" ? "on" : ""} onClick={() => onChange({ lang: "en" })}>
+                English
+              </button>
+              <button className={profile.lang === "bn" ? "on" : ""} onClick={() => onChange({ lang: "bn" })}>
+                বাংলা
+              </button>
+            </div>
+            <h1>{tr("Eat from the kitchen. Pray on time. Live lighter.", "ঘরের খাবার খাও। সময়মতো নামাজ পড়ো। হালকা থাকো।")}</h1>
             <p>
-              Built for homemade Bangladeshi food, five daily salah, and the life
-              you already have — cha, swimming, and whatever Ammi cooked.
+              {tr(
+                "Built for homemade Bangladeshi food, five daily salah, and the life you already have — cha, swimming, and whatever Ammi cooked.",
+                "ঘরোয়া বাংলাদেশি খাবার, পাঁচ ওয়াক্ত সালাত আর তোমার রোজকার জীবনের জন্য — চা, সাঁতার, আর আম্মু যা রান্না করেছেন।"
+              )}
             </p>
             <ul className="pills">
-              <li>Namaz alarms by GPS</li>
-              <li>Meal pings</li>
-              <li>Daily tasks</li>
+              <li>{tr("Namaz alarms by GPS", "জিপিএসে নামাজের অ্যালার্ম")}</li>
+              <li>{tr("Meal pings", "খাবারের রিমাইন্ডার")}</li>
+              <li>{tr("Daily tasks", "দৈনিক কাজ")}</li>
             </ul>
             <button className="btn primary" onClick={() => setStep(1)}>
-              Start with my body
+              {tr("Start with my body", "শরীর দিয়ে শুরু")}
             </button>
           </section>
         )}
         {step === 1 && (
           <section>
-            <h2>You, on paper</h2>
+            <h2>{tr("You, on paper", "তোমার তথ্য")}</h2>
             <label>
-              Name
+              {tr("Name", "নাম")}
               <input
                 value={profile.name}
-                placeholder="What should we call you?"
+                placeholder={tr("What should we call you?", "তোমাকে কী নামে ডাকব?")}
                 onChange={(e) => onChange({ name: e.target.value })}
               />
             </label>
             <div className="row">
               <label>
-                Age
+                {tr("Age", "বয়স")}
                 <input
                   type="number"
                   min="14"
@@ -382,28 +424,28 @@ function Onboarding({ profile, onChange, onLocate, locBusy, onDone }) {
                 />
               </label>
               <label>
-                Sex
+                {tr("Sex", "লিঙ্গ")}
                 <select
                   value={profile.sex}
                   onChange={(e) => onChange({ sex: e.target.value })}
                 >
-                  <option value="male">Male</option>
-                  <option value="female">Female</option>
+                  <option value="male">{tr("Male", "পুরুষ")}</option>
+                  <option value="female">{tr("Female", "নারী")}</option>
                 </select>
               </label>
             </div>
             <div className="row">
               <label>
-                Height (ft)
+                {tr("Height (ft)", "উচ্চতা (ফুট)")}
                 <input value={feet} onChange={(e) => setHeight(e.target.value, inch)} />
               </label>
               <label>
-                Inches
+                {tr("Inches", "ইঞ্চি")}
                 <input value={inch} onChange={(e) => setHeight(feet, e.target.value)} />
               </label>
             </div>
             <label>
-              Weight (kg)
+              {tr("Weight (kg)", "ওজন (কেজি)")}
               <input
                 type="number"
                 step="0.1"
@@ -412,15 +454,15 @@ function Onboarding({ profile, onChange, onLocate, locBusy, onDone }) {
               />
             </label>
             <button className="btn primary" onClick={() => setStep(2)}>
-              Next — kitchen & pool
+              {tr("Next — kitchen & pool", "পরের ধাপ — রান্নাঘর ও পুল")}
             </button>
           </section>
         )}
         {step === 2 && (
           <section>
-            <h2>How you actually live</h2>
+            <h2>{tr("How you actually live", "তোমার রোজকার জীবন")}</h2>
             <label>
-              Cups of cha a day
+              {tr("Cups of cha a day", "দিনে কত কাপ চা")}
               <input
                 type="number"
                 min="0"
@@ -430,7 +472,7 @@ function Onboarding({ profile, onChange, onLocate, locBusy, onDone }) {
               />
             </label>
             <label>
-              Swim days / week
+              {tr("Swim days / week", "সপ্তাহে কত দিন সাঁতার")}
               <input
                 type="number"
                 min="0"
@@ -440,42 +482,48 @@ function Onboarding({ profile, onChange, onLocate, locBusy, onDone }) {
               />
             </label>
             <label>
-              Activity
+              {tr("Activity", "কাজকর্ম")}
               <select
                 value={profile.activity}
                 onChange={(e) => onChange({ activity: e.target.value })}
               >
-                <option value="desk">Mostly sitting</option>
-                <option value="light">Light walks</option>
-                <option value="swim">Swimming 3–5 days (you)</option>
-                <option value="heavy">Hard training</option>
+                <option value="desk">{tr("Mostly sitting", "বেশিরভাগ বসে থাকা")}</option>
+                <option value="light">{tr("Light walks", "হালকা হাঁটা")}</option>
+                <option value="swim">{tr("Swimming 3–5 days (you)", "সপ্তাহে ৩–৫ দিন সাঁতার (তুমি)")}</option>
+                <option value="heavy">{tr("Hard training", "কঠিন ব্যায়াম")}</option>
               </select>
             </label>
             <label>
-              Goal
+              {tr("Goal", "লক্ষ্য")}
               <select
                 value={profile.goal}
                 onChange={(e) => onChange({ goal: e.target.value })}
               >
-                <option value="lose">Lose fat, keep muscle</option>
-                <option value="maintain">Hold weight</option>
-                <option value="gain">Gain</option>
+                <option value="lose">{tr("Lose fat, keep muscle", "চর্বি কমাও, পেশি রাখো")}</option>
+                <option value="maintain">{tr("Hold weight", "ওজন ধরে রাখো")}</option>
+                <option value="gain">{tr("Gain", "ওজন বাড়াও")}</option>
               </select>
             </label>
             <button className="btn primary" onClick={() => setStep(3)}>
-              Next — namaz location
+              {tr("Next — namaz location", "পরের ধাপ — নামাজের লোকেশন")}
             </button>
           </section>
         )}
         {step === 3 && (
           <section>
-            <h2>Namaz by your sky</h2>
+            <h2>{tr("Namaz by your sky", "তোমার আকাশে নামাজ")}</h2>
             <p className="muted">
-              Times come from your GPS via Aladhan (Karachi method — usual in
-              Bangladesh). Allow notifications so Fajr actually wakes you.
+              {tr(
+                "Times come from your GPS via Aladhan (Karachi method, Hanafi Asr — usual in Bangladesh). Allow notifications so Fajr actually wakes you.",
+                "সময় আসে তোমার জিপিএস থেকে (করাচি পদ্ধতি, হানাফি আসর — বাংলাদেশে প্রচলিত)। নোটিফিকেশন চালু রাখো যাতে ফজরে সত্যিই ঘুম ভাঙে।"
+              )}
             </p>
             <button className="btn ghost" disabled={locBusy} onClick={onLocate}>
-              {locBusy ? "Finding you…" : profile.city ? `Located: ${profile.city}` : "Use my location"}
+              {locBusy
+                ? tr("Finding you…", "খুঁজছি…")
+                : profile.city
+                  ? `${tr("Located", "লোকেশন")}: ${profile.city}`
+                  : tr("Use my location", "আমার লোকেশন নাও")}
             </button>
             {profile.lat && (
               <p className="tiny">
@@ -483,7 +531,7 @@ function Onboarding({ profile, onChange, onLocate, locBusy, onDone }) {
               </p>
             )}
             <button className="btn primary" onClick={onDone}>
-              Build my plan
+              {tr("Build my plan", "আমার প্ল্যান বানাও")}
             </button>
           </section>
         )}
@@ -500,19 +548,86 @@ function Onboarding({ profile, onChange, onLocate, locBusy, onDone }) {
 function AyahCard({ ayah }) {
   return (
     <article className="ayah-card">
-      <p className="kicker gold">Ayah of the day · আয়াত</p>
+      <p className="kicker gold">{tr("Ayah of the day · আয়াত", "আজকের আয়াত")}</p>
       <p className="ayah-ar" dir="rtl" lang="ar">
         {ayah.ar}
       </p>
       {ayah.pron && <p className="ayah-pron">{ayah.pron}</p>}
-      <p className="ayah-en">{ayah.en}</p>
+      {tr(true, false) && <p className="ayah-en">{ayah.en}</p>}
       <p className="ayah-bn">{ayah.bn}</p>
       <cite>{ayah.ref}</cite>
     </article>
   );
 }
 
-function Home({ now, profile, prayer, tasks, water, doneMeals, doneNamaz, onWater, onTab, onIbadah }) {
+function SwimCard({ swims, goal, now, onSwims }) {
+  const [min, setMin] = useState("45");
+  const [laps, setLaps] = useState("");
+  const wk = swimWeek(swims, goal, now);
+  const today = todayKey(now);
+  const recent = [...swims].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 3);
+
+  return (
+    <section className="card stack">
+      <div className="card-h">
+        <h3>{tr("Swim · সাঁতার", "সাঁতার")}</h3>
+        <span>
+          {wk.thisWeek}/{wk.target} {tr("this week", "এই সপ্তাহে")}
+          {wk.streak > 0 && ` · ${wk.streak} ${tr("wk streak", "সপ্তাহ টানা")}`}
+        </span>
+      </div>
+      <div className="week-dots" aria-hidden>
+        {Array.from({ length: wk.target }, (_, i) => (
+          <i key={i} className={i < wk.thisWeek ? "on" : ""} />
+        ))}
+      </div>
+      <form
+        className="row swim-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const m = Number(min);
+          if (!(m > 0)) return;
+          onSwims([...swims, { id: uid(), date: today, min: m, laps: Number(laps) || 0 }]);
+          setLaps("");
+        }}
+      >
+        <label>
+          {tr("Minutes", "মিনিট")}
+          <input type="number" min="1" value={min} onChange={(e) => setMin(e.target.value)} />
+        </label>
+        <label>
+          {tr("Laps (optional)", "ল্যাপ (ঐচ্ছিক)")}
+          <input type="number" min="0" value={laps} onChange={(e) => setLaps(e.target.value)} />
+        </label>
+        <button className="btn primary" type="submit">
+          {tr("Log today's swim", "আজকের সাঁতার যোগ করো")}
+        </button>
+      </form>
+      {recent.length > 0 && (
+        <ul className="swim-log">
+          {recent.map((s) => (
+            <li key={s.id}>
+              <span>{s.date === today ? tr("Today", "আজ") : s.date.slice(5)}</span>
+              <b>
+                {s.min} {tr("min", "মিনিট")}
+                {s.laps ? ` · ${s.laps} ${tr("laps", "ল্যাপ")}` : ""}
+              </b>
+              <button
+                className="x"
+                aria-label={tr("Delete swim", "সাঁতার মুছুন")}
+                onClick={() => onSwims(swims.filter((x) => x.id !== s.id))}
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function Home({ now, profile, prayer, tasks, water, doneMeals, doneNamaz, swims, onSwims, onWater, onTab, onIbadah }) {
   const b = bmi(profile.weightKg, profile.heightCm);
   const bl = bmiLabel(b);
   const kcal = targetCalories(profile);
@@ -522,34 +637,36 @@ function Home({ now, profile, prayer, tasks, water, doneMeals, doneNamaz, onWate
   const nxt = prayer ? nextPrayer(prayer.times, now) : null;
   const glasses = water[todayKey(now)] || 0;
   const openTasks = tasks.filter((t) => !t.done).length;
-  const name = profile.name || "bhai";
-  const prayed = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"].filter(
-    (n) => doneNamaz?.[`${todayKey(now)}-${n}`]
-  ).length;
+  const name = profile.name || tr("bhai", "ভাই");
+  const prayed = prayedOn(doneNamaz, now);
+  const streak = namazStreak(doneNamaz, now).current;
 
   return (
     <main className="page">
       <header className="top">
         <div>
-          <p className="kicker">Assalamu alaikum</p>
+          <p className="kicker">{tr("Assalamu alaikum", "আসসালামু আলাইকুম")}</p>
           <h1>{name}</h1>
         </div>
         <button className="chip ghost" type="button" onClick={() => onIbadah("hijri")}>
           {prayer?.hijri
-            ? `${prayer.hijri.day} ${prayer.hijri.month.en}`
-            : now.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}
+            ? `${prayer.hijri.day} ${tr(prayer.hijri.month.en, HIJRI_BN[Number(prayer.hijri.month.number)])}`
+            : now.toLocaleDateString(tr(undefined, "bn-BD"), { weekday: "short", day: "numeric", month: "short" })}
         </button>
       </header>
 
       {nxt && (
         <button className="salah-card" onClick={() => onTab("namaz")}>
           <div>
-            <p className="kicker gold">Next namaz</p>
+            <p className="kicker gold">{tr("Next namaz", "পরের নামাজ")}</p>
             <h2>
-              <span className="ar">{nxt.bangla}</span> {nxt.name}
+              <span className="ar">{nxt.bangla}</span> {tr(nxt.name, "")}
             </h2>
             <p>{formatClock(nxt.at)}</p>
-            <p className="tiny">{prayed}/5 prayed today</p>
+            <p className="tiny">
+              {prayed}/5 {tr("prayed today", "আজ পড়া হয়েছে")}
+              {streak > 0 && ` · ${streak} ${tr("day streak", "দিন টানা")}`}
+            </p>
           </div>
           <div className="count">{formatHms(nxt.at - now)}</div>
         </button>
@@ -557,21 +674,21 @@ function Home({ now, profile, prayer, tasks, water, doneMeals, doneNamaz, onWate
 
       {prayer?.isRamadan && prayer.ramadan && (
         <section className="ramadan-home">
-          <p className="kicker gold">রমজান · Ramadan</p>
+          <p className="kicker gold">{tr("রমজান · Ramadan", "রমজান")}</p>
           <div className="ramadan-pair">
             <article>
               <small>সাহরি শেষ</small>
               <strong>{prayer.ramadan.suhoorEnd}</strong>
-              <em>Imsak</em>
+              <em>{tr("Imsak", "ইমসাক")}</em>
             </article>
             <article>
               <small>ইফতার</small>
               <strong>{prayer.ramadan.iftar}</strong>
-              <em>Maghrib</em>
+              <em>{tr("Maghrib", "মাগরিব")}</em>
             </article>
           </div>
           <button className="textish" onClick={() => onIbadah("hijri")}>
-            Full Hijri calendar
+            {tr("Full Hijri calendar", "পুরো হিজরি ক্যালেন্ডার")}
           </button>
         </section>
       )}
@@ -581,19 +698,27 @@ function Home({ now, profile, prayer, tasks, water, doneMeals, doneNamaz, onWate
       <div className="ibadah-row">
         <button type="button" onClick={() => onIbadah("quran")}>
           <b>কুরআন</b>
-          10 minutes
+          {tr("Daily pages", "দৈনিক পৃষ্ঠা")}
+        </button>
+        <button type="button" onClick={() => onIbadah("tasbih")}>
+          <b>তাসবিহ</b>
+          {tr("Counter", "গণনা")}
         </button>
         <button type="button" onClick={() => onIbadah("qibla")}>
           <b>কিবলা</b>
-          Compass
+          {tr("Compass", "কম্পাস")}
         </button>
         <button type="button" onClick={() => onIbadah("dua")}>
           <b>দোয়া</b>
-          Search
+          {tr("Search", "খুঁজুন")}
         </button>
         <button type="button" onClick={() => onIbadah("hijri")}>
           <b>হিজরি</b>
-          Calendar
+          {tr("Calendar", "ক্যালেন্ডার")}
+        </button>
+        <button type="button" onClick={() => onTab("me")}>
+          <b>{tr("Weight", "ওজন")}</b>
+          {profile.weightKg} → {target} kg
         </button>
       </div>
 
@@ -604,30 +729,32 @@ function Home({ now, profile, prayer, tasks, water, doneMeals, doneNamaz, onWate
           <em className={bl.tone}>{bl.text}</em>
         </article>
         <article>
-          <small>Eat around</small>
+          <small>{tr("Eat around", "খাবার")}</small>
           <strong>{kcal}</strong>
-          <em>kcal / day</em>
+          <em>{tr("kcal / day", "ক্যালরি / দিন")}</em>
         </article>
         <article>
-          <small>Aim</small>
+          <small>{tr("Aim", "লক্ষ্য")}</small>
           <strong>{target}</strong>
-          <em>kg · ~{weeks} wks</em>
+          <em>{tr(`kg · ~${weeks} wks`, `কেজি · ~${weeks} সপ্তাহ`)}</em>
         </article>
       </section>
 
+      <SwimCard swims={swims} goal={profile.swimDays} now={now} onSwims={onSwims} />
+
       <section className="card">
         <div className="card-h">
-          <h3>Today’s plate</h3>
-          <button className="textish" onClick={() => onTab("eat")}>Full diet</button>
+          <h3>{tr("Today’s plate", "আজকের প্লেট")}</h3>
+          <button className="textish" onClick={() => onTab("eat")}>{tr("Full diet", "পুরো ডায়েট")}</button>
         </div>
-        {day.isSwim && <p className="flag">Swim day — 1½ cup rice at lunch.</p>}
+        {day.isSwim && <p className="flag">{tr("Swim day — 1½ cup rice at lunch.", "সাঁতারের দিন — দুপুরে দেড় কাপ ভাত।")}</p>}
         <ul className="meals-mini">
           {day.meals.map((m) => {
             const done = doneMeals[`${todayKey(now)}-${m.id}`];
             return (
               <li key={m.id} className={done ? "done" : ""}>
                 <span>{m.time}</span>
-                <b>{m.slot}</b>
+                <b>{tr(m.slot, m.bangla)}</b>
                 <em>{m.title}</em>
               </li>
             );
@@ -637,8 +764,8 @@ function Home({ now, profile, prayer, tasks, water, doneMeals, doneNamaz, onWate
 
       <section className="card">
         <div className="card-h">
-          <h3>Water · পানি</h3>
-          <span>{glasses}/{WATER_GOAL} glasses</span>
+          <h3>{tr("Water · পানি", "পানি")}</h3>
+          <span>{glasses}/{WATER_GOAL} {tr("glasses", "গ্লাস")}</span>
         </div>
         <div className="glasses">
           {Array.from({ length: WATER_GOAL }, (_, i) => (
@@ -646,15 +773,19 @@ function Home({ now, profile, prayer, tasks, water, doneMeals, doneNamaz, onWate
               key={i}
               className={i < glasses ? "full" : ""}
               onClick={() => onWater(i + 1 === glasses ? i : i + 1)}
-              aria-label={`glass ${i + 1}`}
+              aria-label={`${tr("glass", "গ্লাস")} ${i + 1}`}
             />
           ))}
         </div>
       </section>
 
       <button className="card task-jump" onClick={() => onTab("tasks")}>
-        <h3>Daily tasks</h3>
-        <p>{openTasks ? `${openTasks} still open` : "All clear — add the next one."}</p>
+        <h3>{tr("Daily tasks", "দৈনিক কাজ")}</h3>
+        <p>
+          {openTasks
+            ? tr(`${openTasks} still open`, `${openTasks}টি বাকি`)
+            : tr("All clear — add the next one.", "সব শেষ — পরেরটা যোগ করো।")}
+        </p>
       </button>
     </main>
   );
@@ -669,7 +800,7 @@ function Eat({ profile, prayer, doneMeals, onToggleMeal }) {
   const ramadanPlates = ramadan
     ? RAMADAN_MEALS.map((m) => ({
         ...m,
-        time: m.id === "suhoor" ? `until ${prayer.ramadan.suhoorEnd}` : prayer.ramadan.iftar,
+        time: m.id === "suhoor" ? `${tr("until", "শেষ")} ${prayer.ramadan.suhoorEnd}` : prayer.ramadan.iftar,
       }))
     : null;
 
@@ -678,27 +809,32 @@ function Eat({ profile, prayer, doneMeals, onToggleMeal }) {
       <header className="top">
         <div>
           <p className="kicker">ঘরোয়া রান্না</p>
-          <h1>Eat</h1>
+          <h1>{tr("Eat", "খাবার")}</h1>
         </div>
-        <span className="chip">{plan.kcal} kcal</span>
+        <span className="chip">{plan.kcal} {tr("kcal", "ক্যালরি")}</span>
       </header>
       <ul className="rules">
         {KITCHEN_RULES.map((r) => (
           <li key={r.en}>
             <b>{r.bn}</b>
-            <span>{r.en}</span>
+            {tr(true, false) && <span>{r.en}</span>}
           </li>
         ))}
       </ul>
       <div className="seg">
-        <button className={view === "today" ? "on" : ""} onClick={() => setView("today")}>Today</button>
-        <button className={view === "week" ? "on" : ""} onClick={() => setView("week")}>Week</button>
-        <button className={view === "bazaar" ? "on" : ""} onClick={() => setView("bazaar")}>Bazaar</button>
+        <button className={view === "today" ? "on" : ""} onClick={() => setView("today")}>{tr("Today", "আজ")}</button>
+        <button className={view === "week" ? "on" : ""} onClick={() => setView("week")}>{tr("Week", "সপ্তাহ")}</button>
+        <button className={view === "bazaar" ? "on" : ""} onClick={() => setView("bazaar")}>{tr("Bazaar", "বাজার")}</button>
       </div>
 
       {view === "today" && ramadan && (
         <>
-          <p className="flag">Ramadan — eat at Suhoor and Iftar only. Fast from Imsak to Maghrib.</p>
+          <p className="flag">
+            {tr(
+              "Ramadan — eat at Suhoor and Iftar only. Fast from Imsak to Maghrib.",
+              "রমজান — শুধু সাহরি ও ইফতারে খাও। ইমসাক থেকে মাগরিব পর্যন্ত রোজা।"
+            )}
+          </p>
           {ramadanPlates.map((m) => {
             const done = doneMeals[`${todayKey()}-${m.id}`];
             return (
@@ -706,10 +842,10 @@ function Eat({ profile, prayer, doneMeals, onToggleMeal }) {
                 <header>
                   <div>
                     <p className="kicker">{m.bangla} · {m.time}</p>
-                    <h3>{m.slot}</h3>
+                    <h3>{tr(m.slot, m.bangla)}</h3>
                   </div>
                   <button className="check" onClick={() => onToggleMeal(m.id)}>
-                    {done ? "✓" : "Eat"}
+                    {done ? "✓" : tr("Eat", "খেলাম")}
                   </button>
                 </header>
                 <ul className="food-chips">
@@ -717,7 +853,7 @@ function Eat({ profile, prayer, doneMeals, onToggleMeal }) {
                     <li key={it}>{it}</li>
                   ))}
                 </ul>
-                <p className="muted">{m.note}</p>
+                <p className="muted">{tr(m.note, m.noteBn || m.note)}</p>
               </article>
             );
           })}
@@ -727,9 +863,10 @@ function Eat({ profile, prayer, doneMeals, onToggleMeal }) {
       {view === "today" && !ramadan && (
         <>
           <p className="tea-line">
-            Cha: {profile.teaCups} cups now → <b>{cha.week1}</b> this week, then {cha.after}. {cha.rule}
+            {tr("Cha", "চা")}: {profile.teaCups} {tr("cups now", "কাপ এখন")} → <b>{cha.week1}</b>{" "}
+            {tr("this week, then", "এই সপ্তাহে, তারপর")} {cha.after}. {cha.rule}
           </p>
-          {today.isSwim && <p className="flag">Swim today — 1½ cup rice at lunch.</p>}
+          {today.isSwim && <p className="flag">{tr("Swim today — 1½ cup rice at lunch.", "আজ সাঁতার — দুপুরে দেড় কাপ ভাত।")}</p>}
           {today.meals.map((m) => {
             const done = doneMeals[`${todayKey()}-${m.id}`];
             return (
@@ -737,10 +874,10 @@ function Eat({ profile, prayer, doneMeals, onToggleMeal }) {
                 <header>
                   <div>
                     <p className="kicker">{m.bangla} · {m.time}</p>
-                    <h3>{m.slot}</h3>
+                    <h3>{tr(m.slot, m.bangla)}</h3>
                   </div>
                   <button className="check" onClick={() => onToggleMeal(m.id)}>
-                    {done ? "✓" : "Eat"}
+                    {done ? "✓" : tr("Eat", "খেলাম")}
                   </button>
                 </header>
                 <ul className="food-chips">
@@ -760,11 +897,14 @@ function Eat({ profile, prayer, doneMeals, onToggleMeal }) {
           {plan.days.map((d) => (
             <article key={d.day} className="week-cell">
               <h3>
-                {d.day}
-                {d.isSwim && <span className="swim">swim</span>}
+                {tr(d.day, WEEK_BN_SUN[d.i])}
+                {d.isSwim && <span className="swim">{tr("swim", "সাঁতার")}</span>}
               </h3>
               <p>{d.protein.name}</p>
-              <small>{d.isSwim ? "1½ cup bhat" : "1 cup bhat"} · ruti at night</small>
+              <small>
+                {d.isSwim ? tr("1½ cup bhat", "দেড় কাপ ভাত") : tr("1 cup bhat", "১ কাপ ভাত")} ·{" "}
+                {tr("ruti at night", "রাতে রুটি")}
+              </small>
             </article>
           ))}
         </div>
@@ -788,9 +928,9 @@ function Eat({ profile, prayer, doneMeals, onToggleMeal }) {
 function TimesPane({ now, profile, prayer, err, locBusy, onLocate, onProfile, doneNamaz, onToggleNamaz }) {
   const nxt = prayer ? nextPrayer(prayer.times, now) : null;
   const hijri = prayer?.hijri;
-  const prayed = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"].filter(
-    (n) => doneNamaz?.[`${todayKey(now)}-${n}`]
-  ).length;
+  const prayed = prayedOn(doneNamaz, now);
+  const streak = namazStreak(doneNamaz, now);
+  const week = Array.from({ length: 7 }, (_, i) => daysAgo(6 - i, now));
   const [guide, setGuide] = useState(null);
 
   if (guide) {
@@ -803,7 +943,7 @@ function TimesPane({ now, profile, prayer, err, locBusy, onLocate, onProfile, do
       {hijri && (
         <p className="namaz-meta muted">
           <span>
-            {hijri.day} {hijri.month.en} {hijri.year}
+            {hijri.day} {tr(hijri.month.en, HIJRI_BN[Number(hijri.month.number)])} {hijri.year}
           </span>
           <span>{profile.city}</span>
         </p>
@@ -820,10 +960,10 @@ function TimesPane({ now, profile, prayer, err, locBusy, onLocate, onProfile, do
           </li>
         </ul>
       )}
-      {err && <p className="flag alert">{err}. Check location / network.</p>}
+      {err && <p className="flag alert">{err}. {tr("Check location / network.", "লোকেশন / ইন্টারনেট দেখো।")}</p>}
       {!profile.lat && (
         <button className="btn primary" onClick={onLocate}>
-          Allow location for salah times
+          {tr("Allow location for salah times", "নামাজের সময়ের জন্য লোকেশন দাও")}
         </button>
       )}
       <ol className="salah-list">
@@ -835,7 +975,7 @@ function TimesPane({ now, profile, prayer, err, locBusy, onLocate, onProfile, do
               <li key={p.name} className={`${active ? "active" : ""} ${done ? "prayed" : ""}`}>
                 <button
                   className="salah-tick"
-                  aria-label={done ? `${p.name} prayed` : `Mark ${p.name} prayed`}
+                  aria-label={done ? tr(`${p.name} prayed`, `${p.bangla} পড়া হয়েছে`) : tr(`Mark ${p.name} prayed`, `${p.bangla} পড়েছি`)}
                   onClick={() => {
                     onToggleNamaz(p.name);
                     if (!done && active) stopAlarm();
@@ -845,7 +985,7 @@ function TimesPane({ now, profile, prayer, err, locBusy, onLocate, onProfile, do
                 </button>
                 <button type="button" className="salah-open" onClick={() => setGuide(p.name)}>
                   <span className="ar">{p.bangla}</span>
-                  <b>{p.name}</b>
+                  <b>{tr(p.name, "")}</b>
                   <time>{active ? formatHms(nxt.at - now) : p.clock}</time>
                 </button>
               </li>
@@ -853,7 +993,35 @@ function TimesPane({ now, profile, prayer, err, locBusy, onLocate, onProfile, do
           }
         )}
       </ol>
-      <p className="tiny">{prayed} of 5 marked. Tap a name to see rakats. Tick the circle after you pray.</p>
+      <p className="tiny">
+        {tr(
+          `${prayed} of 5 marked. Tap a name to see rakats. Tick the circle after you pray.`,
+          `৫ ওয়াক্তের ${prayed} টি চিহ্নিত। রাকাত দেখতে নামে চাপো। নামাজের পর বৃত্তে টিক দাও।`
+        )}
+      </p>
+      <section className="card stack">
+        <div className="card-h">
+          <h3>{tr("Streak", "ধারাবাহিকতা")}</h3>
+          <span>
+            {tr(`Best ${streak.best} days`, `সেরা ${streak.best} দিন`)}
+          </span>
+        </div>
+        <p className="streak-big">
+          <strong>{streak.current}</strong>{" "}
+          {tr("days in a row with all five", "দিন টানা পাঁচ ওয়াক্ত")}
+        </p>
+        <ol className="namaz-week">
+          {week.map((d) => {
+            const n = prayedOn(doneNamaz, d);
+            return (
+              <li key={todayKey(d)} className={n === 5 ? "full" : n ? "part" : ""}>
+                <span>{d.toLocaleDateString(tr("en", "bn-BD"), { weekday: "narrow" })}</span>
+                <b>{n}</b>
+              </li>
+            );
+          })}
+        </ol>
+      </section>
       <section className="card namaz-settings">
         <label className="toggle">
           <input
@@ -861,17 +1029,17 @@ function TimesPane({ now, profile, prayer, err, locBusy, onLocate, onProfile, do
             checked={profile.notifyNamaz}
             onChange={(e) => onProfile({ notifyNamaz: e.target.checked })}
           />
-          Alarm for all five
+          {tr("Alarm for all five", "পাঁচ ওয়াক্তেই অ্যালার্ম")}
         </label>
         <label>
-          Remind me
+          {tr("Remind me", "কখন মনে করাবে")}
           <select
             value={profile.namazOffsetMin}
             onChange={(e) => onProfile({ namazOffsetMin: Number(e.target.value) })}
           >
-            <option value="0">At the azan time</option>
-            <option value="-10">10 min before</option>
-            <option value="-5">5 min before</option>
+            <option value="0">{tr("At the azan time", "আজানের সময়")}</option>
+            <option value="-10">{tr("10 min before", "১০ মিনিট আগে")}</option>
+            <option value="-5">{tr("5 min before", "৫ মিনিট আগে")}</option>
           </select>
         </label>
         <button
@@ -881,18 +1049,19 @@ function TimesPane({ now, profile, prayer, err, locBusy, onLocate, onProfile, do
             await askNotify();
             fireNotify({
               title: "Fajr · ফজর",
-              body: "Test alarm — phone should ring now.",
+              body: tr("Test alarm — phone should ring now.", "টেস্ট অ্যালার্ম — ফোন এখন বাজার কথা।"),
               tag: "test",
               sticky: true,
             });
           }}
         >
-          Test full alarm
+          {tr("Test full alarm", "পুরো অ্যালার্ম টেস্ট")}
         </button>
         <p className="tiny">
-          Allow notifications, Alarms & reminders, and Unrestricted battery.
-          Then tap Test — you should hear the siren. Keep Hayat installed; do
-          not force-stop it.
+          {tr(
+            "Allow notifications, Alarms & reminders, and Unrestricted battery. Then tap Test — you should hear the siren. Keep Hayat installed; do not force-stop it.",
+            "নোটিফিকেশন, অ্যালার্ম ও রিমাইন্ডার, আর আনরেস্ট্রিক্টেড ব্যাটারি চালু করো। তারপর টেস্ট চাপো — সাইরেন শোনার কথা। হায়াত ফোর্স-স্টপ করো না।"
+          )}
         </p>
       </section>
     </>
@@ -918,25 +1087,25 @@ function Tasks({ tasks, onTasks }) {
       <header className="top">
         <div>
           <p className="kicker">আজকের কাজ</p>
-          <h1>Reminders</h1>
+          <h1>{tr("Reminders", "রিমাইন্ডার")}</h1>
         </div>
       </header>
       <form className="card add-task" onSubmit={add}>
         <input
           value={title}
-          placeholder="e.g. Swim 45 min, call Ammu"
+          placeholder={tr("e.g. Swim 45 min, call Ammu", "যেমন: ৪৫ মিনিট সাঁতার, আম্মুকে ফোন")}
           onChange={(e) => setTitle(e.target.value)}
         />
         <div className="row">
           <input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
           <input
             value={note}
-            placeholder="Optional note"
+            placeholder={tr("Optional note", "নোট (ঐচ্ছিক)")}
             onChange={(e) => setNote(e.target.value)}
           />
         </div>
         <button className="btn primary" type="submit">
-          Add task
+          {tr("Add task", "কাজ যোগ করো")}
         </button>
       </form>
       <ul className="task-list">
@@ -947,7 +1116,7 @@ function Tasks({ tasks, onTasks }) {
               onClick={() =>
                 onTasks(tasks.map((x) => (x.id === t.id ? { ...x, done: !x.done } : x)))
               }
-              aria-label="toggle"
+              aria-label={tr("Mark done", "সম্পন্ন")}
             />
             <div>
               <b>{t.title}</b>
@@ -958,53 +1127,110 @@ function Tasks({ tasks, onTasks }) {
             <button
               className="x"
               onClick={() => onTasks(tasks.filter((x) => x.id !== t.id))}
-              aria-label="delete"
+              aria-label={tr("Delete", "মুছুন")}
             >
               ×
             </button>
           </li>
         ))}
       </ul>
-      {tasks.length === 0 && <p className="muted">Nothing yet. Add the next thing.</p>}
+      {tasks.length === 0 && <p className="muted">{tr("Nothing yet. Add the next thing.", "এখনো কিছু নেই। পরের কাজটা যোগ করো।")}</p>}
     </main>
   );
 }
 
-function Me({ profile, onProfile, onLocate, locBusy, onReset }) {
+function WeightChart({ weights, target }) {
+  const pts = Object.entries(weights)
+    .filter(([, kg]) => kg > 0)
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .slice(-30);
+  if (pts.length < 2) {
+    return <p className="tiny">{tr("Log your weight on two different days to see the line.", "লাইন দেখতে দুই দিন ওজন লিখো।")}</p>;
+  }
+  const kgs = pts.map(([, kg]) => kg);
+  const lo = Math.min(...kgs) - 0.5;
+  const hi = Math.max(...kgs) + 0.5;
+  const showGoal = target >= lo && target <= hi;
+  const W = 300;
+  const H = 120;
+  const x = (i) => (i / (pts.length - 1)) * W;
+  const y = (kg) => H - ((kg - lo) / (hi - lo)) * H;
+  const first = kgs[0];
+  const last = kgs[kgs.length - 1];
+  const diff = +(last - first).toFixed(1);
+
+  return (
+    <>
+      <svg className="weight-chart" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={tr("Weight trend", "ওজনের ধারা")}>
+        {showGoal && <line x1="0" x2={W} y1={y(target)} y2={y(target)} className="goal" />}
+        <polyline points={pts.map(([, kg], i) => `${x(i)},${y(kg)}`).join(" ")} />
+      </svg>
+      <p className="tiny">
+        {tr(
+          `${pts[0][0].slice(5)}: ${first} kg → now ${last} kg (${diff > 0 ? "+" : ""}${diff}). Target ${target} kg.`,
+          `${pts[0][0].slice(5)}: ${first} কেজি → এখন ${last} কেজি (${diff > 0 ? "+" : ""}${diff})। লক্ষ্য ${target} কেজি।`
+        )}
+      </p>
+    </>
+  );
+}
+
+function Me({ profile, weights, onWeight, onProfile, onLocate, locBusy, onReset }) {
   const ft = ftInFromCm(profile.heightCm);
   const [feet, setFeet] = useState(String(ft.ftAdj ?? ft.ft));
   const [inch, setInch] = useState(String(ft.inch));
   const b = bmi(profile.weightKg, profile.heightCm);
+  const target = targetWeightKg(profile.heightCm);
+  const toGo = +(profile.weightKg - target).toFixed(1);
 
   return (
     <main className="page">
       <header className="top">
         <div>
           <p className="kicker">প্রোফাইল</p>
-          <h1>You</h1>
+          <h1>{tr("You", "তুমি")}</h1>
         </div>
       </header>
-      <p className="lede">
-        BMI {b.toFixed(1)}. Target ~{targetWeightKg(profile.heightCm)} kg.
-      </p>
+      <div className="seg">
+        <button className={profile.lang !== "bn" ? "on" : ""} onClick={() => onProfile({ lang: "en" })}>
+          English
+        </button>
+        <button className={profile.lang === "bn" ? "on" : ""} onClick={() => onProfile({ lang: "bn" })}>
+          বাংলা
+        </button>
+      </div>
+      <section className="card stack">
+        <div className="card-h">
+          <h3>{tr("Weight · ওজন", "ওজন")}</h3>
+          <span>
+            BMI {b.toFixed(1)} ·{" "}
+            {toGo > 0 ? tr(`${toGo} kg to go`, `আর ${toGo} কেজি`) : tr("At target", "লক্ষ্যে পৌঁছেছ")}
+          </span>
+        </div>
+        <label>
+          {tr("Today's weight (kg)", "আজকের ওজন (কেজি)")}
+          <input type="number" step="0.1" value={profile.weightKg} onChange={(e) => onWeight(Number(e.target.value))} />
+        </label>
+        <WeightChart weights={weights} target={target} />
+      </section>
       <section className="card stack">
         <label>
-          Name
+          {tr("Name", "নাম")}
           <input value={profile.name} onChange={(e) => onProfile({ name: e.target.value })} />
         </label>
         <div className="row">
           <label>
-            Age
+            {tr("Age", "বয়স")}
             <input type="number" value={profile.age} onChange={(e) => onProfile({ age: Number(e.target.value) })} />
           </label>
           <label>
-            Weight kg
-            <input type="number" step="0.1" value={profile.weightKg} onChange={(e) => onProfile({ weightKg: Number(e.target.value) })} />
+            {tr("Swim days", "সাঁতারের দিন")}
+            <input type="number" value={profile.swimDays} onChange={(e) => onProfile({ swimDays: Number(e.target.value) })} />
           </label>
         </div>
         <div className="row">
           <label>
-            Height ft
+            {tr("Height ft", "উচ্চতা ফুট")}
             <input
               value={feet}
               onChange={(e) => {
@@ -1014,7 +1240,7 @@ function Me({ profile, onProfile, onLocate, locBusy, onReset }) {
             />
           </label>
           <label>
-            In
+            {tr("In", "ইঞ্চি")}
             <input
               value={inch}
               onChange={(e) => {
@@ -1024,33 +1250,27 @@ function Me({ profile, onProfile, onLocate, locBusy, onReset }) {
             />
           </label>
         </div>
-        <div className="row">
-          <label>
-            Cha cups
-            <input type="number" value={profile.teaCups} onChange={(e) => onProfile({ teaCups: Number(e.target.value) })} />
-          </label>
-          <label>
-            Swim days
-            <input type="number" value={profile.swimDays} onChange={(e) => onProfile({ swimDays: Number(e.target.value) })} />
-          </label>
-        </div>
+        <label>
+          {tr("Cha cups", "চায়ের কাপ")}
+          <input type="number" value={profile.teaCups} onChange={(e) => onProfile({ teaCups: Number(e.target.value) })} />
+        </label>
       </section>
       <section className="card stack">
         <label className="toggle">
           <input type="checkbox" checked={profile.notifyMeals} onChange={(e) => onProfile({ notifyMeals: e.target.checked })} />
-          Meal notifications
+          {tr("Meal notifications", "খাবারের নোটিফিকেশন")}
         </label>
         <label className="toggle">
           <input type="checkbox" checked={profile.notifyTasks} onChange={(e) => onProfile({ notifyTasks: e.target.checked })} />
-          Task notifications
+          {tr("Task notifications", "কাজের নোটিফিকেশন")}
         </label>
         <label className="toggle">
           <input type="checkbox" checked={profile.notifyNamaz} onChange={(e) => onProfile({ notifyNamaz: e.target.checked })} />
-          Namaz alarms
+          {tr("Namaz alarms", "নামাজের অ্যালার্ম")}
         </label>
       </section>
       <button className="btn ghost loc" disabled={locBusy} onClick={onLocate}>
-        {locBusy ? "Finding you…" : "Refresh location"}
+        {locBusy ? tr("Finding you…", "খুঁজছি…") : tr("Refresh location", "লোকেশন আপডেট")}
         {profile.city ? <span className="tiny">{profile.city}</span> : null}
       </button>
       <button
@@ -1058,13 +1278,13 @@ function Me({ profile, onProfile, onLocate, locBusy, onReset }) {
         onClick={async () => {
           const p = await askNotify();
           playChime("meal");
-          if (p === "granted") fireNotify({ title: "Hayat", body: "Notifications are on.", tag: "ok" });
+          if (p === "granted") fireNotify({ title: "Hayat", body: tr("Notifications are on.", "নোটিফিকেশন চালু আছে।"), tag: "ok" });
         }}
       >
-        Test notifications
+        {tr("Test notifications", "নোটিফিকেশন টেস্ট")}
       </button>
       <button className="btn danger" onClick={onReset}>
-        Start over
+        {tr("Start over", "নতুন করে শুরু")}
       </button>
     </main>
   );

@@ -2,6 +2,12 @@ import { Capacitor, registerPlugin } from "@capacitor/core";
 import { Geolocation } from "@capacitor/geolocation";
 import { LocalNotifications } from "@capacitor/local-notifications";
 
+let lang = "en";
+export function setLang(l) {
+  lang = l === "bn" ? "bn" : "en";
+}
+export const tr = (en, bn) => (lang === "bn" ? bn : en);
+
 const HayatNative = registerPlugin("HayatNative");
 const NAMAZ_CHANNEL = "hayat-namaz";
 let nativeListen = false;
@@ -85,6 +91,8 @@ export const defaultProfile = {
   notifyTasks: true,
   namazOffsetMin: 0,
   mealReminders: true,
+  lang: "en",
+  quranGoal: 4,
 };
 
 export function loadState() {
@@ -115,6 +123,11 @@ function emptyState() {
     doneNamaz: {},
     water: {},
     quranPage: 1,
+    quranLog: {},
+    khatams: 0,
+    weights: {},
+    swims: [],
+    tasbih: {},
   };
 }
 
@@ -139,10 +152,10 @@ export function bmi(kg, cm) {
 }
 
 export function bmiLabel(v) {
-  if (v < 18.5) return { text: "Underweight", tone: "warn" };
-  if (v < 25) return { text: "Healthy", tone: "good" };
-  if (v < 30) return { text: "Overweight", tone: "warn" };
-  return { text: "Obese range", tone: "alert" };
+  if (v < 18.5) return { text: tr("Underweight", "কম ওজন"), tone: "warn" };
+  if (v < 25) return { text: tr("Healthy", "স্বাস্থ্যকর"), tone: "good" };
+  if (v < 30) return { text: tr("Overweight", "বেশি ওজন"), tone: "warn" };
+  return { text: tr("Obese range", "স্থূলতা"), tone: "alert" };
 }
 
 export function bmr({ sex, kg, cm, age }) {
@@ -199,17 +212,24 @@ export function chaPlan(cupsNow) {
     week1: Math.max(3, n - 1),
     week2: 3,
     after: 2,
-    rule: "No sugar. No biscuit. Last cup before Maghrib.",
+    rule: tr("No sugar. No biscuit. Last cup before Maghrib.", "চিনি নয়। বিস্কুট নয়। শেষ কাপ মাগরিবের আগে।"),
   };
 }
 
 export function groceryList() {
-  return [
-    { group: "Always at home", items: ["Atta for ruti", "Chal — 1 cup cooked at lunch", "Masoor dal", "Eggs", "Cha pata"] },
-    { group: "Protein this week", items: ["Fish 3 days", "Chicken 2 days", "Eggs the rest", "Dahi if you find it"] },
-    { group: "Bazaar sabji", items: ["Lau / jhinge / dherosh", "Shak (palong or pui)", "Tomato, cucumber, lemon", "Onion, garlic, ginger"] },
-    { group: "Snack", items: ["Kola or guava", "Skip the biscuit tin"] },
-  ];
+  return lang === "bn"
+    ? [
+        { group: "সবসময় ঘরে", items: ["রুটির আটা", "চাল — দুপুরে ১ কাপ ভাত", "মসুর ডাল", "ডিম", "চা পাতা"] },
+        { group: "এই সপ্তাহের প্রোটিন", items: ["মাছ ৩ দিন", "মুরগি ২ দিন", "বাকি দিন ডিম", "পেলে দই"] },
+        { group: "বাজারের সবজি", items: ["লাউ / ঝিঙে / ঢেঁড়স", "শাক (পালং বা পুঁই)", "টমেটো, শসা, লেবু", "পেঁয়াজ, রসুন, আদা"] },
+        { group: "নাস্তা", items: ["কলা বা পেয়ারা", "বিস্কুটের কৌটা বাদ"] },
+      ]
+    : [
+        { group: "Always at home", items: ["Atta for ruti", "Chal — 1 cup cooked at lunch", "Masoor dal", "Eggs", "Cha pata"] },
+        { group: "Protein this week", items: ["Fish 3 days", "Chicken 2 days", "Eggs the rest", "Dahi if you find it"] },
+        { group: "Bazaar sabji", items: ["Lau / jhinge / dherosh", "Shak (palong or pui)", "Tomato, cucumber, lemon", "Onion, garlic, ginger"] },
+        { group: "Snack", items: ["Kola or guava", "Skip the biscuit tin"] },
+      ];
 }
 
 export const KITCHEN_RULES = [
@@ -234,9 +254,9 @@ export function weeklyPlan(profile) {
         slot: "Breakfast",
         bangla: "নাস্তা",
         time: "07:30",
-        title: "2 ruti + 2 eggs + tomato-cucumber",
+        title: tr("2 ruti + 2 eggs + tomato-cucumber", "২ রুটি + ২ ডিম + টমেটো-শসা"),
         items: ["২ রুটি", "২ ডিম", "টমেটো-শসা"],
-        note: "Leftover ruti is fine. No biscuit with cha.",
+        note: tr("Leftover ruti is fine. No biscuit with cha.", "বাসি রুটিও চলবে। চায়ের সাথে বিস্কুট নয়।"),
         kcal: 430,
         protein: 22,
       },
@@ -246,12 +266,17 @@ export function weeklyPlan(profile) {
         bangla: "দুপুর",
         time: "13:30",
         title: khichuri
-          ? "Small khichuri + salad + doi"
-          : `${rice} + dal + sabji + ${protein.plate}`,
+          ? tr("Small khichuri + salad + doi", "অল্প খিচুড়ি + সালাদ + দই")
+          : tr(
+              `${rice} + dal + sabji + ${protein.plate}`,
+              `${isSwim ? "দেড় কাপ ভাত" : "১ কাপ ভাত"} + ডাল + সবজি + ${protein.name}`
+            ),
         items: khichuri
           ? ["খিচুড়ি", "সালাদ", "দই"]
           : [isSwim ? "দেড় কাপ ভাত" : "১ কাপ ভাত", "ডাল", "সবজি", protein.name],
-        note: isSwim ? "Swim day — the extra rice is earned." : "One plate. Don't refill the rice.",
+        note: isSwim
+          ? tr("Swim day — the extra rice is earned.", "সাঁতারের দিন — বাড়তি ভাত তোমার প্রাপ্য।")
+          : tr("One plate. Don't refill the rice.", "এক প্লেট। ভাত আবার নিও না।"),
         kcal: khichuri ? 620 : isSwim ? 780 : 680,
         protein: 32,
       },
@@ -260,9 +285,9 @@ export function weeklyPlan(profile) {
         slot: "Cha",
         bangla: "চা",
         time: "17:00",
-        title: "Unsweetened cha + 1 banana or guava",
+        title: tr("Unsweetened cha + 1 banana or guava", "চিনি ছাড়া চা + ১টা কলা বা পেয়ারা"),
         items: ["চা (চিনি ছাড়া)", "১ কলা"],
-        note: "Fruit is the snack. Count this as one cha.",
+        note: tr("Fruit is the snack. Count this as one cha.", "ফলই নাস্তা। এটাকে এক কাপ চা ধরো।"),
         kcal: 130,
         protein: 2,
       },
@@ -271,9 +296,12 @@ export function weeklyPlan(profile) {
         slot: "Dinner",
         bangla: "রাত",
         time: "20:00",
-        title: "2 ruti + leftover curry or 1 egg + salad",
+        title: tr("2 ruti + leftover curry or 1 egg + salad", "২ রুটি + বাড়তি তরকারি বা ১ ডিম + সালাদ"),
         items: ["২ রুটি", "বাড়তি তরকারি / ডিম", "সালাদ"],
-        note: "Finish 1 hour before sleep. Still hungry? One extra ruti or doi — not rice.",
+        note: tr(
+          "Finish 1 hour before sleep. Still hungry? One extra ruti or doi — not rice.",
+          "ঘুমের ১ ঘণ্টা আগে শেষ করো। এখনো ক্ষুধা? আরেকটা রুটি বা দই — ভাত নয়।"
+        ),
         kcal: 480,
         protein: 24,
       },
@@ -292,7 +320,55 @@ export function todayPlan(profile, date = new Date()) {
 export const WATER_GOAL = 10;
 
 export function todayKey(d = new Date()) {
-  return d.toISOString().slice(0, 10);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+
+export function daysAgo(n, from = new Date()) {
+  const d = new Date(from);
+  d.setDate(d.getDate() - n);
+  return d;
+}
+
+const FIVE = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"];
+
+export function prayedOn(doneNamaz, d) {
+  const k = todayKey(d);
+  return FIVE.filter((n) => doneNamaz?.[`${k}-${n}`]).length;
+}
+
+// ponytail: scans back one day at a time, capped at a year — fine for one person's ticks.
+export function namazStreak(doneNamaz, now = new Date()) {
+  const full = (i) => prayedOn(doneNamaz, daysAgo(i, now)) === 5;
+  let current = 0;
+  for (let i = full(0) ? 0 : 1; i < 366 && full(i); i++) current++;
+  let best = 0;
+  let run = 0;
+  for (let i = 365; i >= 0; i--) {
+    run = full(i) ? run + 1 : 0;
+    best = Math.max(best, run);
+  }
+  return { current, best };
+}
+
+export function weekStart(d = new Date()) {
+  const s = new Date(d);
+  s.setHours(0, 0, 0, 0);
+  s.setDate(s.getDate() - ((s.getDay() + 1) % 7));
+  return s;
+}
+
+export function swimWeek(swims, goal, now = new Date()) {
+  const days = (start) => {
+    const a = todayKey(start);
+    const b = todayKey(daysAgo(-7, start));
+    return new Set(swims.filter((s) => s.date >= a && s.date < b).map((s) => s.date)).size;
+  };
+  const start = weekStart(now);
+  const thisWeek = days(start);
+  const target = Math.max(1, Number(goal) || 1);
+  let streak = thisWeek >= target ? 1 : 0;
+  for (let w = 1; w < 52 && days(daysAgo(7 * w, start)) >= target; w++) streak++;
+  return { thisWeek, target, streak };
 }
 
 export const KAABA = { lat: 21.4225, lng: 39.8262 };
@@ -592,7 +668,7 @@ export async function fetchPrayerTimes(lat, lng, method = 1, date = new Date()) 
   const dd = String(date.getDate()).padStart(2, "0");
   const mm = String(date.getMonth() + 1).padStart(2, "0");
   const yy = date.getFullYear();
-  const url = `https://api.aladhan.com/v1/timings/${dd}-${mm}-${yy}?latitude=${lat}&longitude=${lng}&method=${method}`;
+  const url = `https://api.aladhan.com/v1/timings/${dd}-${mm}-${yy}?latitude=${lat}&longitude=${lng}&method=${method}&school=1`;
   const r = await fetch(url);
   if (!r.ok) throw new Error("Prayer API failed");
   const j = await r.json();
@@ -676,6 +752,7 @@ export const RAMADAN_MEALS = [
     items: ["খেজুর", "২ রুটি", "ডিম", "পানি / দই"],
     title: "Dates + 2 ruti + egg + water",
     note: "Finish before Imsak. Don't skip water.",
+    noteBn: "ইমসাকের আগে শেষ করো। পানি বাদ দিও না।",
   },
   {
     id: "iftar",
@@ -684,6 +761,7 @@ export const RAMADAN_MEALS = [
     items: ["৩ খেজুর", "পানি", "ফল / ছোলা"],
     title: "Dates and water first, then fruit or chhola",
     note: "Pray Maghrib, then a normal plate — not a feast.",
+    noteBn: "মাগরিব পড়ো, তারপর স্বাভাবিক প্লেট — ভোজ নয়।",
   },
 ];
 
@@ -749,8 +827,8 @@ export function formatHms(ms) {
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   const sec = s % 60;
-  if (h) return `${h}h ${String(m).padStart(2, "0")}m`;
-  return `${m}m ${String(sec).padStart(2, "0")}s`;
+  if (h) return tr(`${h}h ${String(m).padStart(2, "0")}m`, `${h}ঘ ${String(m).padStart(2, "0")}মি`);
+  return tr(`${m}m ${String(sec).padStart(2, "0")}s`, `${m}মি ${String(sec).padStart(2, "0")}সে`);
 }
 
 export function formatClock(d) {
@@ -1006,11 +1084,11 @@ export function buildAgenda({ profile, prayerTimes, tasks, date = new Date() }) 
         body:
           p.name === "Fajr"
             ? prayerTimes.isRamadan
-              ? `Fajr. Suhoor is over. Time for salah.`
-              : `Time for salah. Today's ayah — ${ayah.en} (${ayah.ref})`
+              ? tr("Fajr. Suhoor is over. Time for salah.", "ফজর। সাহরি শেষ। সালাতের সময়।")
+              : tr(`Time for salah. Today's ayah — ${ayah.en} (${ayah.ref})`, `সালাতের সময়। আজকের আয়াত — ${ayah.bn} (${ayah.ref})`)
             : p.name === "Maghrib" && prayerTimes.isRamadan
-              ? "Maghrib + Iftar. Dates and water, then pray."
-              : "Time for salah. Face Qibla, make wudu if you haven't.",
+              ? tr("Maghrib + Iftar. Dates and water, then pray.", "মাগরিব + ইফতার। খেজুর ও পানি, তারপর নামাজ।")
+              : tr("Time for salah. Face Qibla, make wudu if you haven't.", "সালাতের সময়। কিবলামুখী হও, ওজু না থাকলে করে নাও।"),
         sticky: true,
         kind: "namaz",
       });
@@ -1018,8 +1096,8 @@ export function buildAgenda({ profile, prayerTimes, tasks, date = new Date() }) 
     items.push({
       id: "ayah",
       at: parseClock("07:00", date),
-      title: `Ayah · ${ayah.ref}`,
-      body: ayah.en,
+      title: `${tr("Ayah", "আয়াত")} · ${ayah.ref}`,
+      body: tr(ayah.en, ayah.bn),
       sticky: false,
       kind: "ayah",
     });
@@ -1031,7 +1109,10 @@ export function buildAgenda({ profile, prayerTimes, tasks, date = new Date() }) 
         id: "meal-suhoor",
         at: parseClock(r.suhoorStart, date),
         title: "সাহরি · Suhoor",
-        body: `Eat now. Last bite at ${r.suhoorEnd} (Imsak). Dates, ruti, egg, water.`,
+        body: tr(
+          `Eat now. Last bite at ${r.suhoorEnd} (Imsak). Dates, ruti, egg, water.`,
+          `এখন খাও। শেষ সময় ${r.suhoorEnd} (ইমসাক)। খেজুর, রুটি, ডিম, পানি।`
+        ),
         sticky: true,
         kind: "namaz",
       });
@@ -1056,7 +1137,7 @@ export function buildAgenda({ profile, prayerTimes, tasks, date = new Date() }) 
         id: `task-${t.id}`,
         at: parseClock(t.time, date),
         title: t.title,
-        body: t.note || "Daily task reminder",
+        body: t.note || tr("Daily task reminder", "আজকের কাজের রিমাইন্ডার"),
         sticky: false,
         kind: "task",
       });

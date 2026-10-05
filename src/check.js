@@ -1,4 +1,4 @@
-import { bmi, targetCalories, weeklyPlan, defaultProfile, ayahOfDay, AYAT, qiblaBearing, minusMinutes, ramadanTimesFromTimings, isRamadan } from "./lib.js";
+import { bmi, targetCalories, weeklyPlan, defaultProfile, ayahOfDay, AYAT, qiblaBearing, minusMinutes, ramadanTimesFromTimings, isRamadan, todayKey, daysAgo, namazStreak, swimWeek, weekStart, setLang, tr } from "./lib.js";
 import { searchDuas } from "./duas.js";
 import { NAMAZ_SURAHS, PRAYERS, STEPS } from "./namaz.js";
 
@@ -27,4 +27,17 @@ must(STEPS.length >= 8 && NAMAZ_SURAHS[0].id === "fatiha" && NAMAZ_SURAHS.length
 must(minusMinutes("04:30", 45) === "03:45", "suhoor start is 45 min before imsak");
 must(ramadanTimesFromTimings({ Fajr: "04:22", Imsak: "04:12", Maghrib: "18:18" }).iftar === "18:18", "iftar is maghrib");
 must(isRamadan({ month: { number: 9 } }) && !isRamadan({ month: { number: 8 } }), "ramadan detector");
+must(todayKey(new Date(2026, 9, 6, 4, 40)) === "2026-10-06", "fajr before 6am is still today's date");
+const now = new Date(2026, 9, 6, 13, 0);
+const ticks = {};
+for (let i = 1; i <= 3; i++) for (const n of ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]) ticks[`${todayKey(daysAgo(i, now))}-${n}`] = true;
+ticks[`${todayKey(now)}-Fajr`] = true;
+const st = namazStreak(ticks, now);
+must(st.current === 3 && st.best === 3, `unfinished today keeps the streak, got ${JSON.stringify(st)}`);
+must(weekStart(new Date(2026, 9, 6)).getDay() === 6, "week starts Saturday");
+const sw = swimWeek([{ date: "2026-10-03" }, { date: "2026-10-05" }, { date: "2026-10-05" }], 4, now);
+must(sw.thisWeek === 2 && sw.streak === 0, `two swim days this week, got ${JSON.stringify(sw)}`);
+setLang("bn");
+must(tr("Home", "ঘর") === "ঘর" && weeklyPlan(p).days[0].meals[0].note.includes("রুটি"), "bangla mode");
+setLang("en");
 console.log("ok", { b: b.toFixed(1), kcal, ayah: ayahOfDay(new Date("2026-08-31")).ref, qibla: Math.round(dhakaQibla) });
