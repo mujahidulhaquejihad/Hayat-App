@@ -5,6 +5,10 @@
   "android": {
     "backgroundColor": "#f6f1e6"
   },
+  "ios": {
+    "backgroundColor": "#f6f1e6",
+    "contentInset": "automatic"
+  },
   "plugins": {
     "LocalNotifications": {
       "iconColor": "#0F5C4C",

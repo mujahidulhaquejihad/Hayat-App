@@ -1049,8 +1049,9 @@ function Me({ profile, onProfile, onLocate, locBusy, onReset }) {
           Namaz alarms
         </label>
       </section>
-      <button className="btn ghost" disabled={locBusy} onClick={onLocate}>
-        Refresh location {profile.city && `· ${profile.city}`}
+      <button className="btn ghost loc" disabled={locBusy} onClick={onLocate}>
+        {locBusy ? "Finding you…" : "Refresh location"}
+        {profile.city ? <span className="tiny">{profile.city}</span> : null}
       </button>
       <button
         className="btn ghost"

@@ -1,12 +1,23 @@
 self.addEventListener("install", (e) => {
   self.skipWaiting();
-  e.waitUntil(caches.open("hayat-v2").then((c) => c.addAll(["/", "/icon.svg"])));
+  e.waitUntil(
+    caches.open("hayat-v3").then((c) => {
+      const base = self.registration.scope;
+      return c.addAll([
+        base,
+        `${base}icon.svg`,
+        `${base}apple-touch-icon.png`,
+        `${base}icon-192.png`,
+        `${base}icon-512.png`,
+      ]);
+    })
+  );
 });
 
 self.addEventListener("activate", (e) => {
   e.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== "hayat-v2").map((k) => caches.delete(k)))
+      Promise.all(keys.filter((k) => k !== "hayat-v3").map((k) => caches.delete(k)))
     ).then(() => self.clients.claim())
   );
 });
@@ -14,7 +25,7 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
   e.respondWith(
-    fetch(e.request).catch(() => caches.match(e.request).then((r) => r || caches.match("/")))
+    fetch(e.request).catch(() => caches.match(e.request).then((r) => r || caches.match(self.registration.scope)))
   );
 });
 
@@ -23,8 +34,8 @@ self.addEventListener("message", (e) => {
   if (d.type === "notify") {
     self.registration.showNotification(d.title, {
       body: d.body,
-      icon: "/icon.svg",
-      badge: "/icon.svg",
+      icon: "/icon-192.png",
+      badge: "/icon-192.png",
       tag: d.tag || "hayat",
       renotify: true,
       silent: false,
@@ -32,7 +43,7 @@ self.addEventListener("message", (e) => {
       vibrate: d.alarm || d.sticky
         ? [900, 80, 900, 80, 900, 80, 1400, 120, 900, 80, 900, 200]
         : [180, 80, 180],
-      data: { url: d.url || "/", alarm: Boolean(d.alarm || d.sticky) },
+      data: { url: d.url || self.registration.scope, alarm: Boolean(d.alarm || d.sticky) },
       actions: d.alarm || d.sticky
         ? [
             { action: "stop", title: "Stop alarm" },
@@ -46,7 +57,7 @@ self.addEventListener("message", (e) => {
 self.addEventListener("notificationclick", (e) => {
   const action = e.action;
   e.notification.close();
-  const url = (e.notification.data && e.notification.data.url) || "/";
+  const url = (e.notification.data && e.notification.data.url) || self.registration.scope;
   e.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
       for (const c of clients) {

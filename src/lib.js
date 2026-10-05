@@ -761,7 +761,7 @@ let swReg = null;
 export async function registerSW() {
   if (isNative()) return null;
   if (!("serviceWorker" in navigator)) return null;
-  swReg = await navigator.serviceWorker.register("/sw.js");
+  swReg = await navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`);
   return swReg;
 }
 

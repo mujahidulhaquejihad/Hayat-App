@@ -11,7 +11,6 @@
   --surface: #fffdf8;
   --shadow: 0 1px 2px rgba(28, 25, 21, 0.04), 0 10px 28px rgba(28, 25, 21, 0.06);
   --radius: 18px;
-  --dock: 88px;
   --font: "Plus Jakarta Sans", system-ui, sans-serif;
   --display: "Fraunces", Georgia, serif;
   --ar: "Amiri", serif;
@@ -62,18 +61,25 @@ h3 {
 }
 .paper {
   width: min(100%, 430px);
-  min-height: 100dvh;
+  height: 100dvh;
   background: var(--paper);
   position: relative;
-  padding-bottom: calc(var(--dock) + env(safe-area-inset-bottom));
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .page {
-  padding: 22px 18px 8px;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  padding: 22px 18px 22px;
   display: flex;
   flex-direction: column;
   gap: 12px;
   overflow-x: hidden;
+  overflow-y: auto;
 }
 .stack {
   display: flex;
@@ -89,6 +95,10 @@ h3 {
   align-items: flex-start;
   gap: 12px;
   margin-bottom: 2px;
+  min-width: 0;
+}
+.top > div {
+  min-width: 0;
 }
 .kicker {
   margin: 0 0 2px;
@@ -133,6 +143,11 @@ h3 {
   border: 0;
   cursor: pointer;
   line-height: 1.2;
+  max-width: 46%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .chip.ghost,
 button.chip.ghost {
@@ -268,6 +283,8 @@ button.chip.ghost {
   border-radius: var(--radius);
   padding: 16px;
   border: 1px solid var(--line);
+  min-width: 0;
+  max-width: 100%;
 }
 .card-h {
   display: flex;
@@ -572,6 +589,7 @@ label {
   font-size: 13px;
   font-weight: 600;
   color: var(--muted);
+  min-width: 0;
 }
 input,
 select {
@@ -580,6 +598,9 @@ select {
   border-radius: 12px;
   padding: 11px 12px;
   outline: none;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 input:focus,
 select:focus {
@@ -590,6 +611,10 @@ select:focus {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+  min-width: 0;
+}
+.row > * {
+  min-width: 0;
 }
 .toggle {
   flex-direction: row;
@@ -600,10 +625,12 @@ select:focus {
   padding: 12px;
   border: 1px solid var(--line);
   color: var(--ink);
+  min-width: 0;
 }
 .toggle input {
   width: 18px;
   height: 18px;
+  flex: none;
   accent-color: var(--green);
   padding: 0;
   box-shadow: none;
@@ -618,6 +645,21 @@ select:focus {
   padding: 13px 18px;
   font-weight: 700;
   width: 100%;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.btn.loc {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  line-height: 1.25;
+}
+.btn.loc .tiny {
+  color: inherit;
+  opacity: 0.72;
+  font-weight: 600;
 }
 .btn.primary {
   background: var(--green);
@@ -686,8 +728,10 @@ select:focus {
 }
 
 .onboard {
-  padding: 40px 22px 32px;
+  height: auto;
   min-height: 100dvh;
+  overflow: auto;
+  padding: 40px 22px 32px;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -741,11 +785,10 @@ select:focus {
 }
 
 .dock {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: calc(10px + env(safe-area-inset-bottom));
-  width: min(calc(100% - 20px), 410px);
+  position: relative;
+  flex: none;
+  width: auto;
+  margin: 0 10px calc(10px + env(safe-area-inset-bottom));
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   background: rgba(255, 253, 248, 0.92);
@@ -765,9 +808,16 @@ select:focus {
   font-size: 10px;
   font-weight: 700;
   color: var(--muted);
-  padding: 8px 0 6px;
+  padding: 8px 2px 6px;
   border-radius: 16px;
   min-width: 0;
+  overflow: hidden;
+}
+.dock button > span:last-child {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .dock button.on {
   color: var(--green);
@@ -892,11 +942,15 @@ select:focus {
 .ibadah-seg {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
+  min-width: 0;
 }
 .ibadah-seg button {
   font-size: 11px;
   padding: 8px 2px;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .btn.slim {
@@ -1359,12 +1413,8 @@ select:focus {
 @media (min-width: 480px) {
   .paper {
     margin: 16px 0;
-    min-height: calc(100dvh - 32px);
+    height: calc(100dvh - 32px);
     border-radius: 28px;
     box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
-  }
-  .dock {
-    width: 398px;
-    bottom: 28px;
   }
 }
